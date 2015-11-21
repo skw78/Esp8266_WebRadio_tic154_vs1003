@@ -3,4 +3,5 @@ ESP8266 + VS1003 MP3 Decoder + TIC154 LCD + ADC resistive keyboard
 
 Functions:
 - multiple WebRadio stations (see user_main.c)
+- 32768 bytes FiFo buffer
 - Volume, Treable and Bass control by keyboard
