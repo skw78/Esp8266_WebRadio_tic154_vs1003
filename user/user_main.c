@@ -27,11 +27,10 @@
 #include "gpio.h"
 #include "eagle_soc.h"
 #include "wifi_api.c"
-
+#include <time.h>
+#include "u_time.h"
 #include "driver/vs1003.h"
 
-//#define user_procTaskPrio        0
-//#define user_procTaskQueueLen    1
 
 #define volstep 5
 #define kb_nokey 0x00
@@ -44,23 +43,12 @@
 #define kb_exit 0x40
 
 
-//os_event_t    user_procTaskQueue[user_procTaskQueueLen];
-
-//static ETSTimer WiFiLinker;
 static volatile os_timer_t WiFiLinker;
 static volatile os_timer_t gpio_timer;
 static volatile os_timer_t mp3_timer;
 
 static void ICACHE_FLASH_ATTR wifi_check_ip(os_event_t *events);
 
-//unsigned char *default_certificate;
-//unsigned int default_certificate_len = 0;
-//unsigned char *default_private_key;
-//unsigned int default_private_key_len = 0;
-
-//char radio[]={"http://78.140.251.2:80/mdl_320"};
-static const char radio[][80]={"http://myserver.mydomain.ru:8000/myradio","http://nashe1.hostingradio.ru:80/nashe-128.mp3","http://nashe1.hostingradio.ru:80/ultra-128.mp3","http://nashe1.hostingradio.ru:80/jazz-128.mp3","http://nashe1.hostingradio.ru:80/best-128.mp3"};
-static const char radio_names[][80]={"��� �����","���� �����","ULTRA","Radio JAZZ","BEST FM"};
 uint8 leftvol=50, rightvol=50;
 uint8 bass=0;
 int8 treable=0;
@@ -75,9 +63,10 @@ uint8 submenu=0;
 
 
 //#define fifo_size 16384
-#define max_url_idx 4
 #define fifo_size 32768
 uint8 fifobuf[fifo_size];
+uint32 fifo_cnt=0;
+uint32 old_fifo_cnt=0;
 
 uint16	readCount=0;
 uint16	writeCount=0;
@@ -92,10 +81,10 @@ static const uint16 fifo_mask = fifo_size-1;
 
 //static void ICACHE_FLASH_ATTR ICACHE_FLASH_ATTR
 //loop(os_event_t *events)
-void mp3_timerfunc(void *arg)
+void  ICACHE_FLASH_ATTR  mp3_timerfunc(void *arg)
 {
 
-    uint32 cnt=0;
+//    uint32 cnt=0;
     uint8 i=0;
     uint16 c=0;
     // Increment counter
@@ -111,7 +100,7 @@ void mp3_timerfunc(void *arg)
 	    i=0;
 	    while((((writeCount-readCount)&fifo_mask)!=0)&&(i<32))
 	    {
-		cnt++;
+//		cnt++;
 		c++;
 		i++;
 		SPIPutChar(fifobuf[readCount++ & fifo_mask]);
@@ -147,12 +136,12 @@ void mp3_timerfunc(void *arg)
 //    os_printf("DREQ %5d (%2d)\r\n", (writeCount-readCount)&fifo_mask, cnt);
     os_printf("\033[2J\033[0;0f");
     os_printf("Radio: %s\r\n", radio_names[url_idx]);
-    cnt=((writeCount-readCount)&fifo_mask)*100/fifo_size;
-    for (i=0;i<cnt/5;i++)  os_printf(">");
+    fifo_cnt=((writeCount-readCount)&fifo_mask)*100/fifo_size;
+    for (i=0;i<fifo_cnt/5;i++)  os_printf(">");
     os_printf("\r\n");
 
 
-    os_printf("DREQ %5d (%2d), %5d, %5d\r\n", (writeCount-readCount)&fifo_mask, cnt, c, zerobuf_cnt);
+    os_printf("DREQ %5d (%2d), %5d, %5d\r\n", (writeCount-readCount)&fifo_mask, fifo_cnt, c, zerobuf_cnt);
     if (rightvol<100)
     {
       os_printf("VOLUME %2d\r\n", 100-rightvol);
@@ -168,17 +157,17 @@ void mp3_timerfunc(void *arg)
 }
 
 
-LOCAL void  radio_http_callback(char * response, int http_status, char * full_response)
+LOCAL void  ICACHE_FLASH_ATTR   radio_http_callback(char * response, int http_status, char * full_response)
 {
 	os_printf ("\n\r--------------disconnect -----------\n\r");
 	os_timer_disarm(&WiFiLinker);
 	os_timer_setfn(&WiFiLinker, (os_timer_func_t *)wifi_check_ip, NULL);
-	os_timer_arm(&WiFiLinker, 10, 0);
+	os_timer_arm(&WiFiLinker, 1000, 0);
 
 }
 
 
-char mp3_callback(char * buf, unsigned short len) {
+char ICACHE_FLASH_ATTR mp3_callback(char * buf, unsigned short len) {
 
 	uint16 i,j,k;
 	uint16 cnt=0;
@@ -318,25 +307,55 @@ static void ICACHE_FLASH_ATTR wifi_check_ip(os_event_t *events)
 }
 
 
-void user_rf_pre_init(void)
+void  ICACHE_FLASH_ATTR  user_rf_pre_init(void)
 {
 
 }
 
 
-void gpio_timerfunc(void *arg)
+void  ICACHE_FLASH_ATTR  gpio_timerfunc(void *arg)
 {
-char i, b;
+char b;
 char strkey[4];
 char key=0;
 int adc=0;
 char outstr[40];
 int8  whole;
 int8  decimal;
+uint8 i;
+struct tmElements ts;
+time_t cs=0;
 
 
+    system_update_cpu_freq(SYS_CPU_160MHZ);
 
-	system_update_cpu_freq(SYS_CPU_160MHZ);
+    // Структура с информацией о полученном, ip адресе клиента STA, маске подсети, шлюзе.
+    struct ip_info ipConfig;
+    // Получаем данные о сетевых настройках
+    wifi_get_ip_info(STATION_IF, &ipConfig);
+    // Проверяем статус wi-fi соединения и факт получения ip адреса
+    if ((wifi_station_get_connect_status() == STATION_GOT_IP && ipConfig.ip.addr != 0) || cs != 0)
+    {
+	cs = sntp_get_current_timestamp();
+	timet_to_tm(cs, &ts);
+	os_sprintf(outstr,"%02u:%02u:%02u %s %02u.%02u.%4u\n", ts.Hour, ts.Minute, ts.Second, wdays[ts.Wday-1], ts.Day, ts.Month, 1970+ts.Year);
+//	os_sprintf(outstr,"%02u:%02u:%02u %02u.%02u.%02u", ts.Hour, ts.Minute, ts.Second, ts.Day, ts.Month, (70+ts.Year)%100);
+        pcf8535_gotoxy(0,7);
+        pcf8535_print(outstr);
+
+//	os_sprintf(outstr,"%02u.%02u.%02u", ts.Day, ts.Month, (70+ts.Year)%100);
+    }
+
+    os_sprintf(outstr,"");
+    if (fifo_cnt!=old_fifo_cnt)
+    {
+        for (i=0;i<fifo_cnt/5;i++)  os_sprintf(outstr,"%s>",outstr);
+        os_sprintf(outstr,"%s\n",outstr);
+        pcf8535_gotoxy(0,5);
+        pcf8535_print(outstr);
+	fifo_cnt=old_fifo_cnt;
+    }
+
     adc = system_adc_read(); // Чтение АЦП
     if (adc<150)
     {
@@ -392,7 +411,7 @@ case 0:
 		    url_idx--;
         	    if (mp3_conn!=NULL) espconn_disconnect(mp3_conn);
 		  }
-		  change_lcd=0x01;
+		  change_lcd|=0x01;
 		  break;
 		}
 		case kb_right:
@@ -402,7 +421,7 @@ case 0:
 		    url_idx++;
                     if (mp3_conn!=NULL) espconn_disconnect(mp3_conn);
 		  }
-		  change_lcd=0x01;
+		  change_lcd|=0x01;
 		  break;
 		}
 	      }
@@ -426,7 +445,7 @@ case 0:
 		  Mp3SelectControl();
 		  Mp3SetVolume(leftvol,rightvol);
 		  Mp3DeselectControl();
-		  change_lcd=0x02;
+		  change_lcd|=0x02;
 		  break;
 		}
 		case kb_right:
@@ -450,7 +469,7 @@ case 0:
 		  Mp3SelectControl();
 		  Mp3SetVolume(leftvol,rightvol);
 		  Mp3DeselectControl();
-		  change_lcd=0x02;
+		  change_lcd|=0x02;
 		  break;
 		}
 	      }
@@ -469,7 +488,7 @@ case 0:
 		    Mp3SelectControl();
 		    Mp3WriteRegister(SPI_BASS, (treable<<4)|treable_lim, (bass<<4)|bass_lim);
 		    Mp3DeselectControl();
-		    change_lcd=0x04;
+		    change_lcd|=0x04;
 		  }
 		  break;
 		}
@@ -482,7 +501,7 @@ case 0:
 		    Mp3SelectControl();
 		    Mp3WriteRegister(SPI_BASS, (treable<<4)|treable_lim, (bass<<4)|bass_lim);
 		    Mp3DeselectControl();
-		    change_lcd=0x04;
+		    change_lcd|=0x04;
 		  }
 		  break;
 		}
@@ -502,7 +521,7 @@ case 0:
 		    Mp3SelectControl();
 		    Mp3WriteRegister(SPI_BASS, (treable<<4)|treable_lim, (bass<<4)|bass_lim);
 		    Mp3DeselectControl();
-		    change_lcd=0x08;
+		    change_lcd|=0x08;
 		  }
 		  break;
 		}
@@ -515,7 +534,7 @@ case 0:
 		    Mp3SelectControl();
 		    Mp3WriteRegister(SPI_BASS, (treable<<4)|treable_lim, (bass<<4)|bass_lim);
 		    Mp3DeselectControl();
-		    change_lcd=0x08;
+		    change_lcd|=0x08;
 		  }
 		  break;
 		}
@@ -536,7 +555,7 @@ case 0:
 		    Mp3SelectControl();
 		    Mp3WriteRegister(SPI_BASS, (treable<<4)|treable_lim, (bass<<4)|bass_lim);
 		    Mp3DeselectControl();
-		    change_lcd=0x10;
+		    change_lcd|=0x10;
 		  }
 		  break;
 		}
@@ -549,7 +568,7 @@ case 0:
 		    Mp3SelectControl();
 		    Mp3WriteRegister(SPI_BASS, (treable<<4)|treable_lim, (bass<<4)|bass_lim);
 		    Mp3DeselectControl();
-		    change_lcd=0x10;
+		    change_lcd|=0x10;
 		  }
 		  break;
 		}
@@ -569,7 +588,7 @@ case 0:
 		    Mp3SelectControl();
 		    Mp3WriteRegister(SPI_BASS, (treable<<4)|treable_lim, (bass<<4)|bass_lim);
 		    Mp3DeselectControl();
-		    change_lcd=0x20;
+		    change_lcd|=0x20;
 		  }
 		  break;
 		}
@@ -582,7 +601,7 @@ case 0:
 		    Mp3SelectControl();
 		    Mp3WriteRegister(SPI_BASS, (treable<<4)|treable_lim, (bass<<4)|bass_lim);
 		    Mp3DeselectControl();
-		    change_lcd=0x20;
+		    change_lcd|=0x20;
 		  }
 		  break;
 		}
@@ -611,7 +630,7 @@ case 0:
 	      submenu=0x40;
 	    }
 
-	    change_lcd=0xff;
+	    change_lcd|=0xff;
 	    break;
 	  }
 	  case kb_down:
@@ -624,7 +643,7 @@ case 0:
 	    {
 	      submenu=0;
 	    }
-	    change_lcd=0xff;
+	    change_lcd|=0xff;
 	    break;
 	  }
 
@@ -641,7 +660,7 @@ if (change_lcd)
     if (change_lcd&0x01)
     {
 
-	pcf8535_gotoxy(0,7);
+	pcf8535_gotoxy(0,6);
 	os_sprintf(outstr,"STATION: ");
 	pcf8535_print(outstr);
 
@@ -665,7 +684,7 @@ if (change_lcd)
 */
     if (change_lcd&0x02)
     {
-        pcf8535_gotoxy(0,6);
+        pcf8535_gotoxy(0,4);
         os_sprintf(outstr,"VOLUME: ");
         pcf8535_print(outstr);
     
@@ -697,7 +716,7 @@ if (change_lcd)
 
     if (change_lcd&0x04)
     {
-        pcf8535_gotoxy(0,5);
+        pcf8535_gotoxy(0,3);
         os_sprintf(outstr,"TREABLE: ");
         pcf8535_print(outstr);
 
@@ -718,7 +737,7 @@ if (change_lcd)
 
     if (change_lcd&0x08)
     {
-        pcf8535_gotoxy(0,4);
+        pcf8535_gotoxy(0,2);
         os_sprintf(outstr,"TREABLE_LIM: ");
         pcf8535_print(outstr);
         if (submenu==3)
@@ -734,7 +753,7 @@ if (change_lcd)
 
     if (change_lcd&0x10)
     {
-        pcf8535_gotoxy(0,3);
+        pcf8535_gotoxy(0,1);
         os_sprintf(outstr,"BASS: ");
         pcf8535_print(outstr);
 
@@ -751,7 +770,7 @@ if (change_lcd)
 
     if (change_lcd&0x20)
     {
-        pcf8535_gotoxy(0,2);
+        pcf8535_gotoxy(0,0);
         os_sprintf(outstr,"BASS_LIM: ");
         pcf8535_print(outstr);
         if (submenu==5)
@@ -765,28 +784,29 @@ if (change_lcd)
 	pcf8535_print(outstr);
     }
 
-
+/*
     if (change_lcd&0x40)
     {
         os_sprintf(outstr,"MODE: %2d %2d\n", menu, submenu);
         pcf8535_gotoxy(0,1);
         pcf8535_print(outstr);
-        change_lcd=false;
     }
-
+*/
+/*
     if (change_lcd&0x80)
     {
         pcf8535_gotoxy(0,0);
         os_sprintf(outstr,"Skw WiFi Radio v.0.0.1");
         pcf8535_print(outstr);
     }
+*/
     change_lcd=0;
 }
     system_update_cpu_freq(SYS_CPU_80MHZ);
 }
 
 
-void user_init(void)
+void  ICACHE_FLASH_ATTR  user_init(void)
 {
 
 char outstr[40];
@@ -841,6 +861,15 @@ char outstr[40];
 	os_timer_disarm(&mp3_timer);
 	os_timer_setfn(&mp3_timer, (os_timer_func_t *)mp3_timerfunc, NULL);
 	os_timer_arm(&mp3_timer, 100, 1);
+
+
+        os_printf("Starting SNTP client...");
+//    ipaddr_aton("192.168.0.1", addr);
+//    sntp_setserver(0,addr);
+        sntp_setservername(0, sntp_server);
+        if( true == sntp_set_timezone(+3) ) {
+          sntp_init();
+        }
 
 
 

@@ -13,7 +13,7 @@ static const char* wdays[]=
 
 };
 */
-
+/*
 static const char* wdays[]=
 {
   "Тё",
@@ -24,7 +24,7 @@ static const char* wdays[]=
   "Яђ",
   "бс"
 };
-
+*/
 void ICACHE_FLASH_ATTR pcf8535_putchar(char c);
 void ICACHE_FLASH_ATTR pcf8535_print (char *characters);
 void ICACHE_FLASH_ATTR pcf8535_gotoxy(char x,char y);
