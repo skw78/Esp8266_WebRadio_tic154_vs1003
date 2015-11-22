@@ -6,6 +6,7 @@ Functions:
 - 32768 bytes FiFo buffer
 - Volume, Treable and Bass control by keyboard
 - LCD display I2C TIC154 (SCL - GPIO2, SDA - GPIO0)
+- SNTP clock
 
 VS1003:
 MISO - GPIO12
