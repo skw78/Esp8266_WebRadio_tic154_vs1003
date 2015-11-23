@@ -726,11 +726,11 @@ if (change_lcd)
 
         if (submenu==2)
         {
-          os_sprintf(outstr,"<%+02d.%01i>\n", whole, abs(decimal));
+          os_sprintf(outstr,"<%+02d.%01idB>\n", whole, abs(decimal));
         }
         else
         {
-          os_sprintf(outstr,"%+02d.%01i\n", whole, abs(decimal));
+          os_sprintf(outstr,"%+02d.%01idB\n", whole, abs(decimal));
         }
         pcf8535_print(outstr);
     }
