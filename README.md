@@ -1,11 +1,11 @@
 # Esp8266_WebRadio_tic154_vs1003
-ESP8266 + VS1003 MP3 Decoder + TIC154 LCD + ADC resistive keyboard
+ESP8266 + VS1003 MP3 Decoder + TIC154 LCD (SSD1306 OLED also supported) + ADC resistive keyboard
 
 Functions:
 - multiple WebRadio stations (see user_main.c)
 - 32768 bytes FiFo buffer
 - Volume, Treable and Bass control by keyboard
-- LCD display I2C TIC154 (SCL - GPIO2, SDA - GPIO0)
+- LCD display I2C TIC154 or SSD1306 OLED (SCL - GPIO2, SDA - GPIO0)
 - SNTP clock
 
 VS1003:
