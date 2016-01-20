@@ -22,7 +22,8 @@
 #include "httpclient.h"
 #include "driver/uart.h"
 #include "user_config.h"
-#include "pcf8535.h"
+#include "ssd1306.h"
+//#include "pcf8535.h"
 
 #include "gpio.h"
 #include "eagle_soc.h"
@@ -30,7 +31,6 @@
 #include <time.h>
 #include "u_time.h"
 #include "driver/vs1003.h"
-
 
 #define volstep 5
 #define kb_nokey 0x00
@@ -54,7 +54,7 @@ uint8 bass=0;
 int8 treable=0;
 uint8 bass_lim=0;
 uint8 treable_lim=0;
-
+bool mute=false;
 
 uint8 url_idx=0;
 uint16 zerobuf_cnt=0;
@@ -338,10 +338,12 @@ time_t cs=0;
     {
 	cs = sntp_get_current_timestamp();
 	timet_to_tm(cs, &ts);
-	os_sprintf(outstr,"%02u:%02u:%02u %s %02u.%02u.%4u\n", ts.Hour, ts.Minute, ts.Second, wdays[ts.Wday-1], ts.Day, ts.Month, 1970+ts.Year);
+
+//	os_sprintf(outstr,"%02u:%02u:%02u %s %02u.%02u.%4u\n", ts.Hour, ts.Minute, ts.Second, wdays[ts.Wday-1], ts.Day, ts.Month, 1970+ts.Year);
+	os_sprintf(outstr,"%02u:%02u:%02u %s %02u.%02u.%2u\n", ts.Hour, ts.Minute, ts.Second, wdays[ts.Wday-1], ts.Day, ts.Month, (1970+ts.Year)%100);
 //	os_sprintf(outstr,"%02u:%02u:%02u %02u.%02u.%02u", ts.Hour, ts.Minute, ts.Second, ts.Day, ts.Month, (70+ts.Year)%100);
-        pcf8535_gotoxy(0,7);
-        pcf8535_print(outstr);
+        lcd_gotoxy(0,7);
+        lcd_print(outstr);
 
 //	os_sprintf(outstr,"%02u.%02u.%02u", ts.Day, ts.Month, (70+ts.Year)%100);
     }
@@ -351,8 +353,8 @@ time_t cs=0;
     {
         for (i=0;i<fifo_cnt/5;i++)  os_sprintf(outstr,"%s>",outstr);
         os_sprintf(outstr,"%s\n",outstr);
-        pcf8535_gotoxy(0,5);
-        pcf8535_print(outstr);
+        lcd_gotoxy(0,5);
+        lcd_print(outstr);
 	fifo_cnt=old_fifo_cnt;
     }
 
@@ -392,6 +394,25 @@ time_t cs=0;
     }
 
 
+if (key==kb_master)
+{
+  mute=~mute;
+  if (mute)
+  {
+    Mp3SelectControl();
+    Mp3SetVolume(254,254);
+    Mp3DeselectControl();
+    change_lcd|=0x02;
+  }
+  else
+  {
+    leftvol=rightvol;
+    Mp3SelectControl();
+    Mp3SetVolume(100-leftvol,100-rightvol);
+    Mp3DeselectControl();
+    change_lcd|=0x02;
+  }
+}
 
 
 switch (menu)
@@ -431,46 +452,44 @@ case 0:
 	    {
 	      switch (key)
 	      {
-		case kb_left:
+		case kb_right:
 		{
+		  mute=false;
 		  if (rightvol+volstep<100)
 		  {
 		    rightvol+=volstep;
 		  }
 		  else
 		  {
-		    rightvol=255;
+		    rightvol=100;
 		  }
+
 		  leftvol=rightvol;
 		  Mp3SelectControl();
-		  Mp3SetVolume(leftvol,rightvol);
+		  Mp3SetVolume(100-leftvol,100-rightvol);
 		  Mp3DeselectControl();
 		  change_lcd|=0x02;
 		  break;
 		}
-		case kb_right:
+		case kb_left:
 		{
-		  if (rightvol-volstep>0)
+		  mute=false;
+		  if (rightvol>volstep)
 		  {
-		    if (rightvol!=255)
-		    {
 		      rightvol-=volstep;
-		    }
-		    else
-		    {
-		      rightvol=100;
-		    }
 		  }
 		  else
 		  {
 		    rightvol=0;
 		  }
+
 		  leftvol=rightvol;
 		  Mp3SelectControl();
-		  Mp3SetVolume(leftvol,rightvol);
+		  Mp3SetVolume(100-leftvol,100-rightvol);
 		  Mp3DeselectControl();
 		  change_lcd|=0x02;
 		  break;
+
 		}
 	      }
 	      break;
@@ -656,23 +675,23 @@ case 0:
 
 if (change_lcd)
 {
-//    pcf8535_clear();
+//    lcd_clear();
     if (change_lcd&0x01)
     {
 
-	pcf8535_gotoxy(0,6);
+	lcd_gotoxy(0,6);
 	os_sprintf(outstr,"STATION: ");
-	pcf8535_print(outstr);
+	lcd_print(outstr);
 
 	if (submenu==0)
 	{
-	  os_sprintf(outstr,"<%11s>", radio_names[url_idx]);
+	  os_sprintf(outstr,"<%10s>", radio_names[url_idx]);
 	}
 	else
 	{
-	  os_sprintf(outstr,"%13s", radio_names[url_idx]);
+	  os_sprintf(outstr,"%12s", radio_names[url_idx]);
 	}
-	pcf8535_print(outstr);
+	lcd_print(outstr);
     }
 /*
     cnt=((writeCount-readCount)&fifo_mask)*100/fifo_size;
@@ -684,41 +703,39 @@ if (change_lcd)
 */
     if (change_lcd&0x02)
     {
-        pcf8535_gotoxy(0,4);
+        lcd_gotoxy(0,4);
         os_sprintf(outstr,"VOLUME: ");
-        pcf8535_print(outstr);
-    
-
-        if (rightvol<100)
-        {
+        lcd_print(outstr);
+	if (mute)
+	{
     	    if (submenu==1)
 	    {
-             os_sprintf(outstr,"<%3d%%>\n", 100-rightvol);
+             os_sprintf(outstr,"<Mute>\n");
 	    }
 	    else
 	    {
-    	     os_sprintf(outstr,"%3d%%\n", 100-rightvol);
+    	     os_sprintf(outstr,"Mute\n");
 	    }
 	}
 	else
 	{
-	    if (submenu==1)
+    	    if (submenu==1)
 	    {
-             os_sprintf(outstr,"<%3d%%>\n", 0);
+             os_sprintf(outstr,"<%3d%%>\n", rightvol);
 	    }
 	    else
 	    {
-             os_sprintf(outstr,"%3d%%\n", 0);
+    	     os_sprintf(outstr,"%3d%%\n", rightvol);
 	    }
 	}
-	pcf8535_print(outstr);
+	lcd_print(outstr);
     }
 
     if (change_lcd&0x04)
     {
-        pcf8535_gotoxy(0,3);
+        lcd_gotoxy(0,3);
         os_sprintf(outstr,"TREABLE: ");
-        pcf8535_print(outstr);
+        lcd_print(outstr);
 
         whole    = (float)treable*1.5;
         decimal = (((float)treable*1.5) - whole ) * 10; // only deci ..
@@ -732,14 +749,14 @@ if (change_lcd)
         {
           os_sprintf(outstr,"%+02d.%01idB\n", whole, abs(decimal));
         }
-        pcf8535_print(outstr);
+        lcd_print(outstr);
     }
 
     if (change_lcd&0x08)
     {
-        pcf8535_gotoxy(0,2);
+        lcd_gotoxy(0,2);
         os_sprintf(outstr,"TREABLE_LIM: ");
-        pcf8535_print(outstr);
+        lcd_print(outstr);
         if (submenu==3)
         {
           os_sprintf(outstr,"<%2dkHz>\n", treable_lim);
@@ -748,31 +765,31 @@ if (change_lcd)
         {
           os_sprintf(outstr,"%2dkHz\n", treable_lim);
         }
-        pcf8535_print(outstr);
+        lcd_print(outstr);
     }
 
     if (change_lcd&0x10)
     {
-        pcf8535_gotoxy(0,1);
+        lcd_gotoxy(0,1);
         os_sprintf(outstr,"BASS: ");
-        pcf8535_print(outstr);
+        lcd_print(outstr);
 
         if (submenu==4)
         {
-          os_sprintf(outstr,"<%2ddB>\n", bass);
+          os_sprintf(outstr,"<%+2ddB>\n", bass);
         }
         else
         {
-          os_sprintf(outstr,"%2ddB\n", bass);
+          os_sprintf(outstr,"%+2ddB\n", bass);
         }
-        pcf8535_print(outstr);
+        lcd_print(outstr);
     }
 
     if (change_lcd&0x20)
     {
-        pcf8535_gotoxy(0,0);
+        lcd_gotoxy(0,0);
         os_sprintf(outstr,"BASS_LIM: ");
-        pcf8535_print(outstr);
+        lcd_print(outstr);
         if (submenu==5)
         {
           os_sprintf(outstr,"<%2dHz>\n", bass_lim*10);
@@ -781,23 +798,23 @@ if (change_lcd)
         {
           os_sprintf(outstr,"%2dHz\n", bass_lim*10);
         }
-	pcf8535_print(outstr);
+	lcd_print(outstr);
     }
 
 /*
     if (change_lcd&0x40)
     {
         os_sprintf(outstr,"MODE: %2d %2d\n", menu, submenu);
-        pcf8535_gotoxy(0,1);
-        pcf8535_print(outstr);
+        lcd_gotoxy(0,1);
+        lcd_print(outstr);
     }
 */
 /*
     if (change_lcd&0x80)
     {
-        pcf8535_gotoxy(0,0);
+        lcd_gotoxy(0,0);
         os_sprintf(outstr,"Skw WiFi Radio v.0.0.1");
-        pcf8535_print(outstr);
+        lcd_print(outstr);
     }
 */
     change_lcd=0;
@@ -834,10 +851,15 @@ char outstr[40];
 	i2c_master_gpio_init();
         i2c_master_init();
 
-	os_printf("pcf8535 init...\n");
-	pcf8535_init();
-	pcf8535_clear();
-
+	os_printf("lcd init...\n");
+	lcd_init();
+	lcd_clear();
+	lcd_fillscreen(0xAA);
+	lcd_fillscreen(0x55);
+	lcd_fillscreen(0xFF);
+	lcd_fillscreen(0x00);
+	lcd_init();
+	lcd_clear();
 
 	VS1003_Config();
 	Mp3Reset();

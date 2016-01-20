@@ -315,7 +315,7 @@ void ICACHE_FLASH_ATTR pcf8535_init(void)
 //	os_delay_us(100);
 }
 
-void ICACHE_FLASH_ATTR  pcf8535_clear(void)
+void ICACHE_FLASH_ATTR  pcf8535_fillscreen(unsigned char fill)
 {
 unsigned    int i;
 /*  -------------------------------------------------------------------------
@@ -345,10 +345,14 @@ unsigned    int i;
 	i2c_master_checkAck();
         for(i = 0; i < 1064; i++)
 	{
-            i2c_master_writeByte(0x00);
+            i2c_master_writeByte(fill);
 	    i2c_master_checkAck();
 	}
         i2c_master_stop();
 //	os_delay_us(100);
 }
 
+void ICACHE_FLASH_ATTR  pcf8535_clear(void)
+{
+  pcf8535_fillscreen(0);
+}
