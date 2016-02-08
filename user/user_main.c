@@ -26,6 +26,7 @@
 //#include "pcf8535.h"
 
 #include "gpio.h"
+#include "driver/gpio16.h"
 #include "eagle_soc.h"
 #include "wifi_api.c"
 #include <time.h>
@@ -65,96 +66,29 @@ uint8 submenu=0;
 //#define fifo_size 16384
 #define fifo_size 32768
 uint8 fifobuf[fifo_size];
-uint32 fifo_cnt=0;
+
 uint32 old_fifo_cnt=0;
 
 uint16	readCount=0;
 uint16	writeCount=0;
 uint8 change_lcd=0xff;
 //char lcdbuf[8][25];
-
+uint8 ds=0;
 
 static const uint16 fifo_mask = fifo_size-1;
 //static void ICACHE_FLASH_ATTR loop(os_event_t *events);
 
 //Main code function
 
-//static void ICACHE_FLASH_ATTR ICACHE_FLASH_ATTR
-//loop(os_event_t *events)
-void  ICACHE_FLASH_ATTR  mp3_timerfunc(void *arg)
-{
-
-//    uint32 cnt=0;
-    uint8 i=0;
-    uint16 c=0;
-    // Increment counter
-//    os_printf("\r\n-=TASK=-\r\n");
-    system_update_cpu_freq(SYS_CPU_160MHZ);
-    if (((writeCount-readCount)&fifo_mask)!=0)
-    {
-	Mp3DeselectControl();
-	Mp3SelectData();
-//	while (!(MP3_DREQ)) ;
-	while ((MP3_DREQ)&&(((writeCount-readCount)&fifo_mask)!=0))
-	{
-	    i=0;
-	    while((((writeCount-readCount)&fifo_mask)!=0)&&(i<32))
-	    {
-//		cnt++;
-		c++;
-		i++;
-		SPIPutChar(fifobuf[readCount++ & fifo_mask]);
-	    }
-	}
-
-    Mp3DeselectData();
-
-//    os_printf("DREQ p=%d r=%d w=%d s=%d\r\n", cnt, readCount, writeCount, ((writeCount-readCount)&fifo_mask));
-
-//    os_printf("DREQ %5d (%2d), %5d\r\n", (writeCount-readCount)&fifo_mask, cnt, c);
-
-//    if (((writeCount-readCount)&fifo_mask)!=0) gpio_pin_intr_state_set(GPIO_ID_PIN(4), 5);                        // Interrupt on Hi GPIO4 level old 5
-
-	zerobuf_cnt=0;
-    }
-    else
-    {
-	if (mp3_conn!=NULL)
-	{
-	if (zerobuf_cnt>=100)
-	{
-	    if (mp3_conn!=NULL) espconn_disconnect(mp3_conn);
-	    zerobuf_cnt=0;
-	}
-	else
-	{
-	    zerobuf_cnt++;
-	}
-	}
-    }
-
-//    os_printf("DREQ %5d (%2d)\r\n", (writeCount-readCount)&fifo_mask, cnt);
-    os_printf("\033[2J\033[0;0f");
-    os_printf("Radio: %s\r\n", radio_names[url_idx]);
-    fifo_cnt=((writeCount-readCount)&fifo_mask)*100/fifo_size;
-    for (i=0;i<fifo_cnt/5;i++)  os_printf(">");
-    os_printf("\r\n");
 
 
-    os_printf("DREQ %5d (%2d), %5d, %5d\r\n", (writeCount-readCount)&fifo_mask, fifo_cnt, c, zerobuf_cnt);
-    if (rightvol<100)
-    {
-      os_printf("VOLUME %2d\r\n", 100-rightvol);
-    }
-    else
-    {
-      os_printf("VOLUME %2d\r\n", 0);
-    }
-    system_update_cpu_freq(SYS_CPU_80MHZ);
-//    if (((writeCount-readCount)&fifo_mask)!=0)
-//    os_delay_us(100000);
-//    system_os_post(user_procTaskPrio, 0, 0 );
-}
+
+#define user_procTaskPrio        1
+#define user_procTaskQueueLen    1
+
+os_event_t    user_procTaskQueue[user_procTaskQueueLen];
+static void ICACHE_FLASH_ATTR ICACHE_FLASH_ATTR mp3_task(os_event_t *events);
+
 
 
 LOCAL void  ICACHE_FLASH_ATTR   radio_http_callback(char * response, int http_status, char * full_response)
@@ -173,94 +107,30 @@ char ICACHE_FLASH_ATTR mp3_callback(char * buf, unsigned short len) {
 	uint16 cnt=0;
 //	os_printf("RECV l=%d\r\n", len);
 	system_update_cpu_freq(SYS_CPU_160MHZ);
-
+//	ETS_GPIO_INTR_DISABLE();
 	if (((buf[0] == 'I') && (buf[1] == 'C') && (buf[2] == 'Y'))
 			|| ((buf[0] == 'H') && (buf[1] == 'T') && (buf[2] == 'T') && (buf[3] == 'P'))) {
 
-		os_printf("%s", buf);
+//		os_printf("%s", buf);
 		system_update_cpu_freq(SYS_CPU_80MHZ);
 		return 0;
 	}
 
-
-/*
-
-	if (((writeCount-readCount)&fifo_mask)!=0)
-	{
-	    // ������ � VS �� FiFo
-	    Mp3DeselectControl();
-	    Mp3SelectData();
-	    while ((MP3_DREQ)&&(((writeCount-readCount)&fifo_mask)!=0))
-	    {
-		j=0;
-		while((((writeCount-readCount)&fifo_mask)!=0)&&(j<32))
-		{
-		    j++;
-		    SPIPutChar(fifobuf[readCount++ & fifo_mask]);
-		}
-	    }
-	    Mp3DeselectData();
-	}
-*/	
 	i=0;
-
-	if ((MP3_DREQ)&&(((writeCount-readCount)&fifo_mask)==0))
-	{
-	    // ������ � VS �� Recv Buf
-	    Mp3DeselectControl();
-	    Mp3SelectData();
-	    while((i<len)&&MP3_DREQ)
-	    {
-		j=0;
-		while ((i<len)&&(j<32))
-		{
-		    j++;
-	    	    SPIPutChar(buf[i++]);
-		    cnt++;
-		}
-	    }
-	    Mp3DeselectData();
-	}
-
-
+	zerobuf_cnt=0;
 	while (i<len)
 	{
-	    if (((writeCount-readCount)&fifo_mask)>=(fifo_size-1))
-	    {
-
-		k=0;
-		while ((fifo_size-((writeCount-readCount)&fifo_mask))<=(len-i))
-		{
-		// ������ � VS �� FiFo
-		    Mp3DeselectControl();
-		    Mp3SelectData();
-		    while ((MP3_DREQ)&&(((writeCount-readCount)&fifo_mask)!=0))
-		    {
-		    j=0;
-		    while((((writeCount-readCount)&fifo_mask)!=0)&&(j<32))
-		    {
-			j++;
-			k++;
-			SPIPutChar(fifobuf[readCount++ & fifo_mask]);
-		    }
-		    }
-		    Mp3DeselectData();
-
-		}
-
-//		    os_printf("<OVF> w=%5d i=%5d\r\n",k, i);
-//	        system_os_post(user_procTaskPrio, 0, 0 );
-
-	    }
-	    else
-	    {
-		fifobuf[writeCount++ & fifo_mask]=buf[i++];
-	    }
+	  fifobuf[writeCount++ & fifo_mask]=buf[i++];
 	}
 
-//        os_printf("RECV c=%5d l=%5d r=%5d w=%5d s=%5d\r\n", cnt, len, readCount, writeCount, ((writeCount-readCount)&fifo_mask));
-//	system_os_post(user_procTaskPrio, 0, 0 );
-//	if (((writeCount-readCount)&fifo_mask)>(fifo_size-2048)) os_delay_us(10000);
+
+        if (((writeCount-readCount)&fifo_mask)>=(fifo_size-2048))
+	{
+//          gpio_pin_intr_state_set(GPIO_ID_PIN(4), GPIO_PIN_INTR_HILEVEL);
+//	  ETS_GPIO_INTR_ENABLE();
+	    system_os_post(user_procTaskPrio, 0, 0 );
+	}
+
 	system_update_cpu_freq(SYS_CPU_80MHZ);
 	return 0;
 }
@@ -268,7 +138,6 @@ char ICACHE_FLASH_ATTR mp3_callback(char * buf, unsigned short len) {
 //static void  wifi_check_ip(void *arg)
 static void ICACHE_FLASH_ATTR wifi_check_ip(os_event_t *events)
 {
-
 	static struct ip_info ipConfig;
 	os_timer_disarm(&WiFiLinker);
 
@@ -309,7 +178,6 @@ static void ICACHE_FLASH_ATTR wifi_check_ip(os_event_t *events)
 
 void  ICACHE_FLASH_ATTR  user_rf_pre_init(void)
 {
-
 }
 
 
@@ -325,9 +193,33 @@ int8  decimal;
 uint8 i;
 struct tmElements ts;
 time_t cs=0;
-
+    uint32 fifo_cnt=0;
 
     system_update_cpu_freq(SYS_CPU_160MHZ);
+//    if (((writeCount-readCount)&fifo_mask)==0)
+//    {
+	if (mp3_conn!=NULL)
+	{
+	  if (zerobuf_cnt>=20)
+	  {
+            if (mp3_conn!=NULL) 
+	    {
+		espconn_disconnect(mp3_conn);
+		writeCount=0; readCount=0;
+	    }
+	    zerobuf_cnt=0;
+	  }
+	  else
+	  {
+	    zerobuf_cnt++;
+	  }
+	}
+//    }
+//    else
+//    {
+//	zerobuf_cnt=0;
+//    }
+
 
     // Структура с информацией о полученном, ip адресе клиента STA, маске подсети, шлюзе.
     struct ip_info ipConfig;
@@ -349,6 +241,7 @@ time_t cs=0;
     }
 
     os_sprintf(outstr,"");
+    fifo_cnt=((writeCount-readCount)&fifo_mask)*100/fifo_size;
     if (fifo_cnt!=old_fifo_cnt)
     {
         for (i=0;i<fifo_cnt/5;i++)  os_sprintf(outstr,"%s>",outstr);
@@ -359,32 +252,32 @@ time_t cs=0;
     }
 
     adc = system_adc_read(); // Чтение АЦП
-    if (adc<150)
+    os_printf("ADC: %d\n",adc);
+    if (adc<10)
     {
 	key=kb_up;
-
     }
-    else if (adc<300)
+    else if ((adc<210)&&(adc>190))
     {
 	key=kb_down;
     }
-    else if (adc<450)
+    else if ((adc<380)&&(adc>360))
     {
 	key=kb_left;
     }
-    else if (adc<600)
+    else if ((adc<550)&&(adc>530))
     {
 	key=kb_right;
     }
-    else if (adc<750)
+    else if ((adc<690)&&(adc>670))
     {
 	key=kb_master;
     }
-    else if (adc<900)
+    else if ((adc<820)&&(adc>800))
     {
-	key=0x40;
+	key=kb_exit;
     }
-    else if (adc<1000)
+    else if ((adc<940)&&(adc>920))
     {
 	key=kb_menu;
     }
@@ -393,6 +286,9 @@ time_t cs=0;
 	key=kb_nokey;
     }
 
+
+// Обработка нажатия клавиш
+// ETS_GPIO_INTR_DISABLE();
 
 if (key==kb_master)
 {
@@ -430,7 +326,11 @@ case 0:
 		  if (url_idx>0)
 		  {
 		    url_idx--;
-        	    if (mp3_conn!=NULL) espconn_disconnect(mp3_conn);
+        	    if (mp3_conn!=NULL) 
+		    {
+			espconn_disconnect(mp3_conn);
+			writeCount=0; readCount=0;
+		    }
 		  }
 		  change_lcd|=0x01;
 		  break;
@@ -440,7 +340,12 @@ case 0:
 		  if (url_idx<max_url_idx)
 		  {
 		    url_idx++;
-                    if (mp3_conn!=NULL) espconn_disconnect(mp3_conn);
+        	    if (mp3_conn!=NULL) 
+		    {
+			espconn_disconnect(mp3_conn);
+			writeCount=0; readCount=0;
+		    }
+
 		  }
 		  change_lcd|=0x01;
 		  break;
@@ -672,6 +577,7 @@ case 0:
     }
 }
 
+//    ETS_GPIO_INTR_ENABLE();
 
 if (change_lcd)
 {
@@ -819,9 +725,62 @@ if (change_lcd)
 */
     change_lcd=0;
 }
+
     system_update_cpu_freq(SYS_CPU_80MHZ);
 }
 
+
+static void ICACHE_FLASH_ATTR ICACHE_FLASH_ATTR
+mp3_task(os_event_t *events)
+{
+//    uint32 fifo_cnt=0;
+    //Set GPIO to HIGH
+    gpio_pin_intr_state_set(GPIO_ID_PIN(4), GPIO_PIN_INTR_DISABLE);
+    ETS_GPIO_INTR_DISABLE();
+    gpio16_output_set(1);
+    uint8 i=0;
+    uint16 c=0;
+    system_update_cpu_freq(SYS_CPU_160MHZ);
+    if (((writeCount-readCount)&fifo_mask)!=0)
+    {
+	Mp3DeselectControl();
+	Mp3SelectData();
+
+	while ((MP3_DREQ)&&(((writeCount-readCount)&fifo_mask)!=0))
+	{
+	    i=0;
+	    while((((writeCount-readCount)&fifo_mask)!=0)&&(i<32))
+	    {
+		c++;
+		i++;
+		SPIPutChar(fifobuf[readCount++ & fifo_mask]);
+	    }
+	}
+	Mp3DeselectData();
+    }
+//    fifo_cnt=((writeCount-readCount)&fifo_mask)*100/fifo_size;
+
+    if ((!MP3_DREQ)&&(((writeCount-readCount)&fifo_mask)>0))
+    {
+	gpio_pin_intr_state_set(GPIO_ID_PIN(4), GPIO_PIN_INTR_POSEDGE);
+	ETS_GPIO_INTR_ENABLE();
+    }
+    gpio16_output_set(0);
+    system_update_cpu_freq(SYS_CPU_80MHZ);
+}
+
+
+// GPIO interrupt handler:store local data and start task
+static void ICACHE_FLASH_ATTR GPIO4_handler(int8_t key){
+    uint32 gpio_status;
+
+    gpio_pin_intr_state_set(GPIO_ID_PIN(4), GPIO_PIN_INTR_DISABLE);
+    gpio_status = GPIO_REG_READ(GPIO_STATUS_ADDRESS);
+    //clear interrupt status
+    GPIO_REG_WRITE(GPIO_STATUS_W1TC_ADDRESS, gpio_status);
+    system_os_post(user_procTaskPrio, 0, 0 );
+
+}
 
 void  ICACHE_FLASH_ATTR  user_init(void)
 {
@@ -832,6 +791,12 @@ char outstr[40];
         uart_div_modify(0, UART_CLK_FREQ / 115200);
 	// Enable system messages
 	system_set_os_print(1);
+
+extern SpiFlashChip * flashchip;
+
+if(flashchip != NULL) os_printf("FlashID: 0x%08x\nChip size: %d\nBlock size: %d\nSector size: %d\nPage size: %d\nStatus mask: 0x%08x\n",
+flashchip->deviceId, flashchip->chip_size, flashchip->block_size, flashchip->sector_size, flashchip->page_size, flashchip->status_mask );
+else os_printf("Unknown Flash type!\n");
 
 	if(wifi_get_opmode() != STATION_MODE)
 	{
@@ -869,7 +834,6 @@ char outstr[40];
 //	Mp3WriteRegister(SPI_BASS, 0x7A, 0xF5);
 	Mp3DeselectControl();
 
-//	ETS_GPIO_INTR_ENABLE();                                             // Enable gpio interrupts
 
 	os_timer_disarm(&WiFiLinker);
 	os_timer_setfn(&WiFiLinker, (os_timer_func_t *)wifi_check_ip, NULL);
@@ -879,11 +843,11 @@ char outstr[40];
 	os_timer_disarm(&gpio_timer);
 	os_timer_setfn(&gpio_timer, (os_timer_func_t *)gpio_timerfunc, NULL);
 	os_timer_arm(&gpio_timer, 500, 1);
-
+/*
 	os_timer_disarm(&mp3_timer);
 	os_timer_setfn(&mp3_timer, (os_timer_func_t *)mp3_timerfunc, NULL);
 	os_timer_arm(&mp3_timer, 100, 1);
-
+*/
 
         os_printf("Starting SNTP client...");
 //    ipaddr_aton("192.168.0.1", addr);
@@ -895,9 +859,26 @@ char outstr[40];
 
 
 
+    gpio16_output_conf();
+   // set interrupt routine
+   // start first run with timer(otherwise doesn't work?)
+    ETS_GPIO_INTR_DISABLE();
+   // GPIO12 interrupt handler
+    ETS_GPIO_INTR_ATTACH(GPIO4_handler, 4);
+    gpio_pin_intr_state_set(GPIO_ID_PIN(4), GPIO_PIN_INTR_DISABLE);
+
+    //Start os task
+    system_os_task(mp3_task, user_procTaskPrio,user_procTaskQueue, user_procTaskQueueLen);
+//    system_os_post(user_procTaskPrio, 0, 0 );
+
+
+
+	// reset interrupt status
+//    GPIO_REG_WRITE(GPIO_STATUS_W1TC_ADDRESS, BIT(4));
+//    ETS_GPIO_INTR_ENABLE();                                             // Enable gpio interrupts
+//    ETS_INTR_UNLOCK();
 
 //	system_os_task(loop, user_procTaskPrio,user_procTaskQueue, user_procTaskQueueLen);
 //	system_os_post(user_procTaskPrio, 0, 0 );
 
 }
-// r b w o y r
